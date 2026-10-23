@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local-only McDonald's MCP preference lab. Python 3.10+, no dependencies."""
-import json, os, secrets, time, threading, math
+import json, os, secrets, time, threading, ssl
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -9,6 +9,9 @@ from urllib.error import HTTPError
 from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parents[1]
+# macOS python.org builds may lack a bundled CA file; use the system CA bundle.
+SYSTEM_CA = Path('/etc/ssl/cert.pem')
+TLS_CONTEXT = ssl.create_default_context(cafile=str(SYSTEM_CA)) if SYSTEM_CA.exists() else ssl.create_default_context()
 READ_TOOLS = {'now-time-info','campaign-calendar','list-nutrition-foods','query-nearby-stores','query-meals','query-meal-detail','calculate-price'}
 SESSION = secrets.token_urlsafe(32)
 STATE = {'token':os.environ.get('MCD_MCP_TOKEN',''), 'tools':[], 'session':None, 'protocol':'2025-03-26', 'records':{}, 'catalog':[]}
@@ -38,7 +41,7 @@ def rpc(method, params=None, notify=False):
     if STATE['session']: headers['Mcp-Session-Id']=STATE['session']
     if method != 'initialize': headers['MCP-Protocol-Version']=STATE['protocol']
     try:
-        with urlopen(Request('https://mcp.mcd.cn',data=json.dumps(body).encode(),headers=headers),timeout=40) as r:
+        with urlopen(Request('https://mcp.mcd.cn',data=json.dumps(body).encode(),headers=headers),timeout=40,context=TLS_CONTEXT) as r:
             if r.headers.get('Mcp-Session-Id'): STATE['session']=r.headers['Mcp-Session-Id']
             raw = r.read(4*1024*1024).decode()
             kind = r.headers.get('Content-Type','')
