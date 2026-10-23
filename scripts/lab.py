@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local-only McDonald's MCP preference lab. Python 3.10+, no dependencies."""
-import json, os, secrets, time, threading, ssl
+import json, os, secrets, time, threading, ssl, unicodedata
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -123,14 +123,33 @@ def recommend(profile,items,now=None):
 
 DEMO=[{'id':'demo1','name':'演示·经典灵感组合','cents':2500,'tags':['classic'],'source':'demo','at':0},{'id':'demo2','name':'演示·热烈灵感组合','cents':2900,'tags':['spicy'],'source':'demo','at':0},{'id':'demo3','name':'演示·咖啡灵感组合','cents':1800,'tags':['coffee'],'source':'demo','at':0}]
 
+def wrap_card_line(value, limit=54):
+    # Approximate glyph widths; keep Chinese closing punctuation off line starts.
+    value=''.join(c for c in value if ord(c)>=32)
+    rows=[]; line=''; width=0
+    closing='，。、；：？！）》」』】〕〉”’.,:;?!)]}'
+    opening='（《「『【〔〈“‘([{' 
+    for c in value:
+        w=2 if unicodedata.east_asian_width(c) in ('W','F') else 1
+        if width+w>limit and line and c not in closing:
+            tail=''
+            while line and line[-1] in opening:
+                tail=line[-1]+tail;line=line[:-1]
+            rows.append(line);line=tail; width=sum(2 if unicodedata.east_asian_width(x) in ('W','F') else 1 for x in tail)
+        line+=c;width+=w
+    if line:rows.append(line)
+    return rows
+
 def card(result):
     lines=[result['persona'],'预算 ¥'+format(result['budget']/100,'.2f')]
     lines += [x['name']+' · ¥'+format(x['cents']/100,'.2f') for x in result['items']]
     source='演示虚构数据 · 非官方报价' if any(x['source']=='demo' for x in result['items']) else '真实查询候选 · 价格及供应以官方实时结果为准'
     lines += [result['empty']] if result['empty'] else []
     lines += [source,'麦麦人格实验室 · 娱乐口味画像 · 非官方产品']
-    texts=''.join(f'<text x="48" y="{132+i*58}" font-size="{32 if i==0 else 20}">{escape(s)}</text>' for i,s in enumerate(lines))
-    return f'<svg xmlns="http://www.w3.org/2000/svg" width="760" height="640" viewBox="0 0 760 640"><rect width="760" height="640" rx="32" fill="#fff5d6"/><rect x="28" y="28" width="704" height="584" rx="24" fill="none" stroke="#b71e2d" stroke-width="3"/><g font-family="sans-serif" fill="#421f1a"><text x="48" y="72" font-size="18">MAIMAI / PERSONALITY LAB</text>{texts}</g></svg>'
+    lines=[row for line in lines for row in wrap_card_line(line)]
+    height=max(640,200+len(lines)*44)
+    texts=''.join(f'<text x="48" y="{132+i*44}" font-size="{32 if i==0 else 20}">{escape(s)}</text>' for i,s in enumerate(lines))
+    return f'<svg xmlns="http://www.w3.org/2000/svg" width="760" height="{height}" viewBox="0 0 760 {height}"><rect width="760" height="{height}" rx="32" fill="#fff5d6"/><rect x="28" y="28" width="704" height="{height-56}" rx="24" fill="none" stroke="#b71e2d" stroke-width="3"/><g font-family="sans-serif" fill="#421f1a"><text x="48" y="72" font-size="18">MAIMAI / PERSONALITY LAB</text>{texts}</g></svg>'
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args): pass # Never log credentials, bodies or user data.
